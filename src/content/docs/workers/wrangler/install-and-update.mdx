@@ -1,65 +1,169 @@
----
-pcx_content_type: how-to
-title: Install/Update Wrangler
-sidebar:
-  order: 1
-head: []
-description: Get started by installing Wrangler, and update to newer versions by
-  following this guide.
----
+import org.telegram.telegrambots.bots.TelegramLongPollingBot;
+import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.objects.Message;
+import org.telegram.telegrambots.meta.api.objects.Update;
+import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
-import { Render } from "~/components";
+import java.util.HashMap;
+import java.util.Map;
 
-Wrangler is a command-line tool for building with Cloudflare developer products.
-
-## Install Wrangler
-
-To install [Wrangler](https://github.com/cloudflare/workers-sdk/tree/main/packages/wrangler), ensure you have [Node.js](https://nodejs.org/en/) and [npm](https://docs.npmjs.com/getting-started) installed, preferably using a Node version manager like [Volta](https://volta.sh/) or [nvm](https://github.com/nvm-sh/nvm). Using a version manager helps avoid permission issues and allows you to change Node.js versions.
-
-<details>
-<summary>Wrangler System Requirements</summary>
-
-We support running the Wrangler CLI with the [Current, Active, and Maintenance](https://nodejs.org/en/about/previous-releases) versions of Node.js. Your Worker will always be executed in `workerd`, the open source Cloudflare Workers runtime.
-
-Wrangler is only supported on macOS 13.5+, Windows 11, and Linux distros that support glib 2.35. This follows [`workerd`'s OS support policy](https://github.com/cloudflare/workerd?tab=readme-ov-file#running-workerd).
-
-</details>
-
-Wrangler is installed locally into each of your projects. This allows you and your team to use the same Wrangler version, control Wrangler versions for each project, and roll back to an earlier version of Wrangler, if needed.
-
-To install Wrangler within your Worker project, run:
-
-<Render file="install_wrangler" />
-
-Since Cloudflare recommends installing Wrangler locally in your project (rather than globally), the way to run Wrangler will depend on your specific setup and package manager. Refer to [How to run Wrangler commands](/workers/wrangler/commands/#how-to-run-wrangler-commands) for more information.
-
-:::caution
-
-If Wrangler is not installed, running `npx wrangler` will use the latest version of Wrangler.
-
-:::
-
-## Check your Wrangler version
-
-To check your Wrangler version, run:
-
-```sh
-npx wrangler --version
-// or
-npx wrangler version
-// or
-npx wrangler -v
-```
-
-## Update Wrangler
-
-To update the version of Wrangler used in your project, run:
-
-```sh
-npm install wrangler@latest
-```
-
-## Related resources
-
-- [Commands](/workers/wrangler/commands/) - A detailed list of the commands that Wrangler supports.
-- [Configuration](/workers/wrangler/configuration/) - Learn more about Wrangler's configuration file.
+public class AnonymousChatBot extends TelegramLongPollingBot {
+    
+    private static final Long ADMIN_ID = mk_kolivand; // جایگزین با آیدی عددی ادمین
+    private Map<Long, Long> activeChats = new HashMap<>(); // نگاشت کاربران به چت‌های فعال
+    
+    @Override
+    public void onUpdateReceived(Update update) {
+        if (update.hasMessage()) {
+            Message message = update.getMessage();
+            Long userId = message.getFrom().getId();
+            String text = message.getText();
+            
+            // دستورات مدیریتی برای ادمین
+            if (userId.equals(ADMIN_ID) && text.startsWith("/admin")) {
+                handleAdminCommand(message);
+                return;
+            }
+            
+            // شروع چت ناشناس
+            if ("/start".equals(text)) {
+                sendMessage(userId, "به ربات چت ناشناس خوش آمدید!\nبرای شروع چت از /newchat استفاده کنید.");
+                return;
+            }
+            
+            // شروع چت جدید
+            if ("/newchat".equals(text)) {
+                startNewChat(userId);
+                return;
+            }
+            
+            // پایان چت
+            if ("/endchat".equals(text)) {
+                endChat(userId);
+                return;
+            }
+            
+            // ارسال پیام به طرف مقابل چت
+            if (activeChats.containsKey(userId)) {
+                forwardMessage(userId, text);
+            } else {
+                sendMessage(userId, "شما در حال حاضر در چت فعالی نیستید. برای شروع از /newchat استفاده کنید.");
+            }
+        }
+    }
+    
+    private void handleAdminCommand(Message message) {
+        Long adminId = message.getFrom().getId();
+        String[] parts = message.getText().split(" ");
+        
+        if (parts.length < 2) {
+            sendMessage(adminId, "دستورات ادمین:\n/admin chats - مشاهده چت‌های فعال\n/admin view <chatId> - مشاهده یک چت");
+            return;
+        }
+        
+        switch (parts[1]) {
+            case "chats":
+                listActiveChats(adminId);
+                break;
+            case "view":
+                if (parts.length >= 3) {
+                    viewChat(adminId, Long.parseLong(parts[2]));
+                }
+                break;
+            default:
+                sendMessage(adminId, "دستور نامعتبر");
+        }
+    }
+    
+    private void listActiveChats(Long adminId) {
+        StringBuilder sb = new StringBuilder("چت‌های فعال:\n");
+        activeChats.forEach((user1, user2) -> {
+            sb.append("چت بین ").append(user1).append(" و ").append(user2).append("\n");
+        });
+        sendMessage(adminId, sb.toString());
+    }
+    
+    private void viewChat(Long adminId, Long chatId) {
+        // اینجا می‌توانید تاریخچه چت را از دیتابیس یا حافظه بازیابی کنید
+        sendMessage(adminId, "نمایش محتوای چت " + chatId);
+    }
+    
+    private void startNewChat(Long userId) {
+        if (activeChats.containsKey(userId)) {
+            sendMessage(userId, "شما در حال حاضر در یک چت هستید. برای پایان از /endchat استفاده کنید.");
+            return;
+        }
+        
+        // یافتن یک کاربر دیگر که منتظر چت است
+        Long partner = findWaitingPartner(userId);
+        
+        if (partner != null) {
+            activeChats.put(userId, partner);
+            activeChats.put(partner, userId);
+            sendMessage(userId, "چت ناشناس شروع شد! هر پیامی ارسال کنید به طرف مقابل می‌رسد.");
+            sendMessage(partner, "چت ناشناس شروع شد! هر پیامی ارسال کنید به طرف مقابل می‌رسد.");
+        } else {
+            sendMessage(userId, "در حال یافتن یک شریک چت برای شما... لطفا صبر کنید.");
+            // کاربر را به لیست انتظار اضافه کنید
+        }
+    }
+    
+    private Long findWaitingPartner(Long userId) {
+        // اینجا باید منطق یافتن شریک چت پیاده‌سازی شود
+        // برای سادگی، یک شریک تصادفی برمی‌گردانیم
+        for (Map.Entry<Long, Long> entry : activeChats.entrySet()) {
+            if (entry.getValue().equals(userId)) {
+                return entry.getKey();
+            }
+        }
+        return null;
+    }
+    
+    private void endChat(Long userId) {
+        if (!activeChats.containsKey(userId)) {
+            sendMessage(userId, "شما در حال حاضر در چت فعالی نیستید.");
+            return;
+        }
+        
+        Long partner = activeChats.get(userId);
+        activeChats.remove(userId);
+        activeChats.remove(partner);
+        
+        sendMessage(userId, "چت با موفقیت پایان یافت. برای شروع چت جدید از /newchat استفاده کنید.");
+        sendMessage(partner, "طرف مقابل چت را پایان داد. برای شروع چت جدید از /newchat استفاده کنید.");
+    }
+    
+    private void forwardMessage(Long senderId, String text) {
+        Long receiverId = activeChats.get(senderId);
+        sendMessage(receiverId, text);
+        
+        // ذخیره پیام برای دسترسی ادمین
+        saveMessageForAdmin(senderId, receiverId, text);
+    }
+    
+    private void saveMessageForAdmin(Long sender, Long receiver, String text) {
+        // اینجا می‌توانید پیام‌ها را در دیتابیس ذخیره کنید تا ادمین بتواند آنها را ببیند
+    }
+    
+    private void sendMessage(Long chatId, String text) {
+        SendMessage message = new SendMessage();
+        message.setChatId(chatId.toString());
+        message.setText(text);
+        
+        try {
+            execute(message);
+        } catch (TelegramApiException e) {
+            e.printStackTrace();
+        }
+    }
+    
+    @Override
+    public String getBotUsername() {
+        return "YourBotUsername";
+    }
+    
+    @Override
+    public String getBotToken() {
+        return "YOUR_BOT_TOKEN";
+    }
+}
